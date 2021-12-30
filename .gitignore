@@ -1,0 +1,7 @@
+node_modules
+*.tmp
+*.log
+.DS_Store
+example/build
+yarn.lock
+package-lock.json
