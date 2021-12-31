@@ -110,14 +110,6 @@ export function autoSaveLayout(
   debug: boolean | undefined
 ): () => void {
   let saveLayoutTimer: number = -1;
-  const savedLayout = localStorage.getItem(opts.key);
-  if (savedLayout) {
-    try {
-      const layoutData = JSON.parse(savedLayout);
-      if (debug) logger.log(`${TAG}: Loading layout:`, layoutData);
-      dockLayout.current!.loadLayout(layoutData);
-    } catch (e) {}
-  }
   if (saveLayoutTimer < 0) {
     saveLayoutTimer = window.setInterval(() => {
       const layoutData = dockLayout.current!.saveLayout();
@@ -127,7 +119,25 @@ export function autoSaveLayout(
   }
   return () => window.clearInterval(saveLayoutTimer);
 }
-let prevLayout: any = null;
+
+function useDidUpdateEffect(fn: () => void, inputs: any[]) {
+  const didMountRef = React.useRef<boolean>(false);
+  React.useEffect(() => {
+    if (didMountRef.current) return fn();
+    didMountRef.current = true;
+  }, inputs);
+}
+
+type TabDataMap = Record<string, TabData>;
+
+// Calculate layout config from props
+function calculateLayout(config: React.MutableRefObject<TabDataMap>, children: React.ReactNode) {
+  const cfg = {};
+  const calculatedLayout = {dockbox: jsxToJson([children], cfg)[0]};
+  config.current = cfg;
+  return calculatedLayout;
+}
+
 /**
  * DockLayout
  * @example
@@ -135,8 +145,17 @@ let prevLayout: any = null;
  */
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DockLayout = React.forwardRef<DockLayout, React.PropsWithChildren<DockLayoutProps>>((props, ref) => {
-  const config: Record<string, TabData> = {}; // extracted tab props
-  const layout = {dockbox: jsxToJson([props.children], config)[0]};
+  // Collected config from props, especially tab content, used for loadTab
+  const config = React.useRef<TabDataMap>({});
+  
+  // Try read layout from local storage
+  // Use calculated layout if failed
+  const [layout, setLayout] = React.useState(() => {
+    const calculatedLayout = calculateLayout(config, props.children);
+    const savedLayout = localStorage.getItem((props.autosave as AutoSaveLayoutOptions).key);
+    if (savedLayout) try { return JSON.parse(savedLayout) } catch (e) {}
+    return calculatedLayout;
+  });
   const { debug } = props;
 
   if (debug) {
@@ -144,32 +163,28 @@ export const DockLayout = React.forwardRef<DockLayout, React.PropsWithChildren<D
     inspect(layout);
   }
 
-  const innerRef = React.useRef(ref);
-  const combinedRef = useCombinedRefs<DockLayout>(ref, innerRef);
+  // Auto save layout to local storage if props.autosave is set
+  const combinedRef = useCombinedRefs<DockLayout>(ref, React.useRef(ref));
+  const autosave = typeof props.autosave === 'boolean' ? defaultAutoSaveLayoutOptions : props.autosave!;
+  if (debug) logger.log(`${TAG}: Collected tab props:`, config.current);
+  React.useEffect(() => props.autosave && autoSaveLayout(combinedRef, autosave, autosave.log), []);
 
-  const autosave = typeof props.autosave === 'boolean'
-    ? defaultAutoSaveLayoutOptions
-    : props.autosave!;
-  
-    if (debug) logger.log(`${TAG}: Collected tab props:`, config);
-    React.useEffect(() => {
-      if (props.autosave) {
-        autoSaveLayout(combinedRef, autosave, autosave.log);
-      }
-    }, [ref]);
+  // Handle changing of props will trigger setLayout after first render
+  useDidUpdateEffect(() => setLayout(props.layout || calculateLayout(config, props.children)), [props]);
 
-  return Object.keys(config).length !== 0
+  return Object.keys(config.current).length !== 0
     ? React.createElement(RcDockLayout, {
         ref: combinedRef,
+        layout,
         saveTab: saveTab,
-        loadTab: (d: TabBase) => loadTab(d as TabData, config) as TabData,
+        loadTab: (d: TabBase) => loadTab(d as TabData, config.current) as TabData,
         ...props,
-        ...{layout: props.layout || layout}
       })
     : React.createElement(RcDockLayout, {
         ref: combinedRef,
-        ...props,
-        ...{layout: props.layout || layout}
+        defaultLayout: layout,
+        layout,
+        ...props
       });
 });
 
