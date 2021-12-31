@@ -1,5 +1,4 @@
-import { DropDirection, LayoutBase, LayoutData } from 'rc-dock';
-import { DockLayout, HBox, VBox, Panel, Tab } from 'rc-dock-jsx';
+import { DockLayout, HBox, Panel, Tab } from 'rc-dock-jsx';
 // import { DockLayout, HBox, Panel, Tab } from './jsx';
 import 'rc-dock/dist/rc-dock.css';
 import React, { useContext, useState } from 'react';
